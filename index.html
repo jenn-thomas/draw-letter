@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Draw Letter</title>
+    <script type="text/javascript" src="jquery.js"></script>
+    <script type="text/javascript" src="jquery.flot.js"></script>
+    <script type="text/javascript" src="jquery.flot.axislabels.js"></script>
+    <script type="text/javascript" src="socket.io.js"></script>
+    <style>
+        #container {
+            clear: both;
+        }
+        
+        #draw {
+            float: left;
+            border: 2px solid gray;
+            margin: 5px;
+            padding: 10px;
+        }
+        
+        #plots {
+            border: none;
+            float: left;
+            padding-top: 7px;
+        }
+        
+        .plot-placeholder {
+            width: 300px;
+            height: 300px;
+            font-size: 10px;
+            float: left;
+        }
+        .borders {
+            text-align: center;
+            width: 310px;
+            font-family: sans-serif
+        }
+        #send {
+            margin-left: 30px;
+        }
+        #zx{
+            margin-left: 35px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="borders">Write a Letter! <input type="button" id="send" onclick="sendPoints()" value="Submit Letter"></div>
+    <div id="container">
+        <canvas id="draw" style="z-index: 1; " height="300" width="300"></canvas>
+        <div id="plots">
+                <div id="xy" class="plot-placeholder" style="clear:both"></div>
+        </div>
+    </div>
+    <div id="plots" style="clear:both;">
+        <div id="zy" class="plot-placeholder"></div>
+        <div id="zx" class="plot-placeholder"></div>
+    </div>
+
+
+</body>
+<script>
+var socket = io.connect('http://localhost:8080');
+var c = document.getElementById("draw");
+var ctx = c.getContext("2d");
+var height = c.height;
+var width = c.width;
+var pts = [];
+var ptsActual = [];
+var xyData = [];
+var zxData = [];
+var zyData = [];
+var drawnPoints = [];
+    
+// when submit button pressed: disable button, disable 
+// drawing on canvas and send points over
+function sendPoints() {
+    drawnPoints = [];
+    document.getElementById("send").disabled = true;
+    c.removeEventListener('mousedown', clicked, false);
+    socket.emit('data', pts);
+}
+    
+// recieve the current drawing point and plot
+socket.on('sendPts', function (data){
+    drawnPoints.push([data[1][0][5],data[1][1][5]]);
+    drawPlots(data[1]);
+ });
+   
+// when drawing done reset so can draw another!
+socket.on('endDrawing', function(message){
+    console.log(message)
+    document.getElementById("send").disabled = false;
+    c.addEventListener('mousedown', clicked, false);
+});
+
+$(document).ready(function () {
+    c.addEventListener('mousedown', clicked, false);
+});
+
+// record mouse position relative to canvas
+function Position(event){
+    var x; 
+    var y;
+    if (event.x != undefined && event.y != undefined){
+        x = event.x;
+        y = event.y; }
+    else { // Firefox method to get the position
+        x = event.clientX + document.body.scrollLeft +
+        document.documentElement.scrollLeft;
+        y = event.clientY + document.body.scrollTop +
+        document.documentElement.scrollTop; 
+    }
+        x -= c.offsetLeft;
+        y -= c.offsetTop;
+        var coord = [x,y];
+    return coord;
+}
+
+// on mousedown initialize mousemove and mouseup events
+function clicked(event){
+    ctx.clearRect(0, 0, c.width, c.height);
+    pts = []; ptsActual = [];
+    document.addEventListener('mousemove', drawLetter, false);
+    document.addEventListener('mouseup', stopDrawing, false);
+};
+
+// record mousemove postions
+function drawLetter(event){
+    var coord = Position(event);
+	var x = coord[0];
+	var y = coord[1];
+    if (x > width | y > height){
+        document.removeEventListener('mousemove', drawLetter, false);
+        document.removeEventListener('mouseup', stopDrawing, false);
+    }
+    console.log(x,y)
+    console.log([x*2.54/40+8,(y-c.height-21)*-2.54/40+8])
+    pts.push([x*2.54/40+8,(y-c.height-21)*-2.54/40+8])
+    ptsActual.push([x,y])
+    drawPoints();
+}
+
+// on mouseup will stop recording mouse movements
+function stopDrawing(event){
+    document.removeEventListener('mousemove', drawLetter, false);
+    document.removeEventListener('mouseup', stopDrawing, false);
+}
+
+// draws the shape that the person is drawing
+function drawPoints(){
+    ctx.clearRect(0,0,c.width,c.height);
+    for (var i =1; i< ptsActual.length-1; i++){
+        ctx.beginPath();
+        ctx.moveTo(ptsActual[i-1][0],ptsActual[i-1][1]);
+        ctx.lineTo(ptsActual[i][0],ptsActual[i][1]);
+        ctx.stroke();
+    }   
+}
+
+// draw the three plots using flot
+function drawPlots(points){
+    zxData = []; zyData = []; xyData = [];
+    for (var i =0; i< points[0].length;i++){
+        zxData.push([points[0][i],points[2][i]]);
+        zyData.push([points[1][i],points[2][i]]);
+        xyData.push([points[0][i],points[1][i]]);
+    }
+    $.plot($("#zx"), [{data:zxData, color: "#0066ff"},
+                      {data:[zxData[4],zxData[5]], color: "#000000"}],
+           {series: {
+               lines: {show: true},
+               points: {show: true},
+           },
+            axisLabels: {show: true},
+            xaxes: [{axisLabel: 'x'}],
+            yaxes: [{axisLabel: 'z'}],
+            xaxis:{
+                ticks:10,
+                min: -10,
+                max: 40,
+                tickLength: 0
+            },
+            yaxis: {
+                ticks: 10,
+                min: 0,
+                max: 50,
+                tickLength: 0
+            },
+            grid: {
+                backgroundColor: {
+                    colors: ["#fff", "#fff"]
+                },
+                borderWidth: {
+                    top: 1,
+                    right: 1,
+                    bottom: 1,
+                    left: 1
+                }
+            }
+           });
+    $.plot("#zy", [{data:zyData, color: "#0066ff"}, 
+           {data:[zyData[4],zyData[5]], color: "#000000"}],
+            {series: {
+               lines: {show: true},
+               points: {show: true},
+           },
+            axisLabels: {show: true},
+            xaxes: [{axisLabel: 'y'}],
+            yaxes: [{axisLabel: 'z'}],
+            xaxis:{
+                ticks:10,
+                min: 0,
+                max: 50,
+                tickLength: 0
+            },
+            yaxis: {
+                ticks: 10,
+                min: 0,
+                max: 50,
+                tickLength: 0
+            },
+            grid: {
+                backgroundColor: {
+                    colors: ["#fff", "#fff"]
+                },
+                borderWidth: {
+                    top: 1,
+                    right: 1,
+                    bottom: 1,
+                    left: 1
+                }
+            }
+           });
+        $.plot("#xy", [{data:xyData, color: "#0066ff"}, 
+           {data:drawnPoints, color: "#000000", points: {show: false}}],
+            {series: {
+               lines: {show: true},
+               points: {show: true},
+           },
+            axisLabels: {show: true},
+            xaxes: [{axisLabel: 'x'}],
+            yaxes: [{axisLabel: 'y'}],
+            xaxis:{
+                ticks:10,
+                min: 0,
+                max: 30,
+                tickLength: 0
+            },
+            yaxis: {
+                ticks: 10,
+                min: 0,
+                max: 30,
+                tickLength: 0
+            },
+            grid: {
+                backgroundColor: {
+                    colors: ["#fff", "#fff"]
+                },
+                borderWidth: {
+                    top: 1,
+                    right: 1,
+                    bottom: 1,
+                    left: 1
+                }
+            }
+           });
+}
+
+
+</script>
+
+</html>
